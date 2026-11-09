@@ -1,0 +1,50 @@
+# Claims approval API + Camunda 8 (Zeebe) + Postgres.
+# Start with:  docker compose up -d --build
+name: claims-approval
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: claims
+      POSTGRES_USER: claims
+      POSTGRES_PASSWORD: claims
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U claims -d claims"]
+      interval: 3s
+      retries: 20
+
+  zeebe:
+    image: camunda/zeebe:8.6.5
+    ports: ["26500:26500", "9600:9600"]
+    environment:
+      ZEEBE_BROKER_GATEWAY_ENABLE: "true"
+      ZEEBE_BROKER_DATA_DISKUSAGECOMMANDWATERMARK: "0.998"
+      ZEEBE_BROKER_DATA_DISKUSAGEREPLICATIONWATERMARK: "0.999"
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/127.0.0.1/9600'"]
+      interval: 5s
+      retries: 30
+
+  api:
+    build: .
+    ports: ["8080:8080"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      zeebe:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Claims: "Host=postgres;Database=claims;Username=claims;Password=claims;GSS Encryption Mode=Disable"
+      Workflow__GatewayAddress: "zeebe:26500"
+      Database__MigrateOnStartup: "true"
+      # Demo-only signing key and dev token endpoint. Use a secret store and a real IdP in production.
+      Jwt__SigningKey: "compose-demo-signing-key-change-me-0123456789"
+      Jwt__EnableDevTokens: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/127.0.0.1/8080'"]
+      interval: 5s
+      retries: 30
